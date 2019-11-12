@@ -20,9 +20,11 @@
  */
 
 #include "avformat.h"
+#include "flac_picture.h"
 #include "metadata.h"
 #include "vorbiscomment.h"
 #include "libavcodec/bytestream.h"
+#include "libavutil/base64.h"
 #include "libavutil/dict.h"
 
 /**
@@ -43,6 +45,12 @@ int64_t ff_vorbiscomment_length(AVDictionary *m, const char *vendor_string,
 {
     int64_t len = 8;
     len += strlen(vendor_string);
+    if (m) {
+        AVDictionaryEntry *tag = NULL;
+        while ((tag = av_dict_get(m, "", tag, AV_DICT_IGNORE_SUFFIX))) {
+            len += 4 +strlen(tag->key) + 1 + strlen(tag->value);
+        }
+    }
     if (chapters && nb_chapters) {
         for (int i = 0; i < nb_chapters; i++) {
             AVDictionaryEntry *tag = NULL;
@@ -53,18 +61,12 @@ int64_t ff_vorbiscomment_length(AVDictionary *m, const char *vendor_string,
             }
         }
     }
-    if (m) {
-        AVDictionaryEntry *tag = NULL;
-        while ((tag = av_dict_get(m, "", tag, AV_DICT_IGNORE_SUFFIX))) {
-            len += 4 +strlen(tag->key) + 1 + strlen(tag->value);
-        }
-    }
     return len;
 }
 
-int ff_vorbiscomment_write(uint8_t **p, AVDictionary **m,
-                           const char *vendor_string,
-                           AVChapter **chapters, unsigned int nb_chapters)
+int ff_vorbiscomment_write(uint8_t **p, AVDictionary **m, const char *vendor_string,
+                           AVChapter **chapters, unsigned int nb_chapters,
+                           int external_count)
 {
     int cm_count = 0;
     bytestream_put_le32(p, strlen(vendor_string));
@@ -74,10 +76,11 @@ int ff_vorbiscomment_write(uint8_t **p, AVDictionary **m,
             cm_count += av_dict_count(chapters[i]->metadata) + 1;
         }
     }
+    int count = av_dict_count(*m) + cm_count + external_count;
+    bytestream_put_le32(p, count);
+
     if (*m) {
-        int count = av_dict_count(*m) + cm_count;
         AVDictionaryEntry *tag = NULL;
-        bytestream_put_le32(p, count);
         while ((tag = av_dict_get(*m, "", tag, AV_DICT_IGNORE_SUFFIX))) {
             int64_t len1 = strlen(tag->key);
             int64_t len2 = strlen(tag->value);
@@ -88,6 +91,8 @@ int ff_vorbiscomment_write(uint8_t **p, AVDictionary **m,
             bytestream_put_byte(p, '=');
             bytestream_put_buffer(p, tag->value, len2);
         }
+    }
+    if (chapters && nb_chapters) {
         for (int i = 0; i < nb_chapters; i++) {
             AVChapter *chp = chapters[i];
             char chapter_time[13];
@@ -107,7 +112,7 @@ int ff_vorbiscomment_write(uint8_t **p, AVDictionary **m,
             bytestream_put_byte(p, '=');
             bytestream_put_buffer(p, chapter_time, 12);
 
-            tag = NULL;
+            AVDictionaryEntry *tag = NULL;
             while ((tag = av_dict_get(chapters[i]->metadata, "", tag, AV_DICT_IGNORE_SUFFIX))) {
                 int64_t len1 = !strcmp(tag->key, "title") ? 4 : strlen(tag->key);
                 int64_t len2 = strlen(tag->value);
@@ -124,7 +129,6 @@ int ff_vorbiscomment_write(uint8_t **p, AVDictionary **m,
                 bytestream_put_buffer(p, tag->value, len2);
             }
         }
-    } else
-        bytestream_put_le32(p, 0);
+    }
     return 0;
 }

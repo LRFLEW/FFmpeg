@@ -49,9 +49,9 @@ int64_t ff_vorbiscomment_length(AVDictionary *m, const char *vendor_string,
  * @param chapters The chapters to write.
  * @param nb_chapters The number of chapters to write.
  */
-int ff_vorbiscomment_write(uint8_t **p, AVDictionary **m,
-                           const char *vendor_string,
-                           AVChapter **chapters, unsigned int nb_chapters);
+int ff_vorbiscomment_write(uint8_t **p, AVDictionary **m, const char *vendor_string,
+                           AVChapter **chapters, unsigned int nb_chapters,
+                           int external_count);
 
 extern const AVMetadataConv ff_vorbiscomment_metadata_conv[];
 

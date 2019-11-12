@@ -226,7 +226,7 @@ void ff_put_bmp_header(AVIOContext *pb, AVCodecParameters *par,
     avio_wl32(pb, 40 + (ignore_extradata || pal_avi ? 0 : extradata_size));
     avio_wl32(pb, par->width);
     //We always store RGB TopDown
-    avio_wl32(pb, par->codec_tag || keep_height ? par->height : -par->height);
+    avio_wl32(pb, par->codec_tag || keep_height ? par->height : par->height);
     /* planes */
     avio_wl16(pb, 1);
     /* depth */

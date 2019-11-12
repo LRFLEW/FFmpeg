@@ -26,6 +26,9 @@
 
 #define RETURN_ERROR(code) do { ret = (code); goto fail; } while (0)
 
-int ff_flac_parse_picture(AVFormatContext *s, uint8_t *buf, int buf_size);
+int ff_flac_parse_picture(AVFormatContext *s, uint8_t *buf, int buf_size, int ogg_index);
+int ff_flac_picture_length(struct AVFormatContext *s, AVPacket *pkt);
+int ff_flac_write_picture(struct AVFormatContext *s, AVIOContext *pb,
+                          AVPacket *pkt, unsigned *attached_types);
 
 #endif /* AVFORMAT_FLAC_PICTURE_H */
