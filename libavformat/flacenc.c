@@ -70,7 +70,7 @@ static int flac_write_block_comment(AVIOContext *pb, AVDictionary **m,
 
     avio_w8(pb, last_block ? 0x84 : 0x04);
     avio_wb24(pb, len);
-    ff_vorbiscomment_write(pb, *m, vendor, NULL, 0);
+    ff_vorbiscomment_write(pb, *m, vendor, NULL, 0, 0);
 
     return 0;
 }

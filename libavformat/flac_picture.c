@@ -30,7 +30,8 @@
 
 #define MAX_TRUNC_PICTURE_SIZE (500 * 1024 * 1024)
 
-int ff_flac_parse_picture(AVFormatContext *s, uint8_t *buf, int buf_size, int truncate_workaround)
+int ff_flac_parse_picture(AVFormatContext *s, uint8_t *buf, int buf_size,
+                          int ogg_index, int truncate_workaround)
 {
     const CodecMime *mime = ff_id3v2_mime_tags;
     enum AVCodecID id = AV_CODEC_ID_NONE;
@@ -181,6 +182,8 @@ int ff_flac_parse_picture(AVFormatContext *s, uint8_t *buf, int buf_size, int tr
     av_dict_set(&st->metadata, "comment", ff_id3v2_picture_types[type], 0);
     if (desc)
         av_dict_set(&st->metadata, "title", desc, AV_DICT_DONT_STRDUP_VAL);
+    if (ogg_index >= 0)
+        av_dict_set_int(&st->metadata, "ogg_attach", ogg_index, 0);
 
     return 0;
 

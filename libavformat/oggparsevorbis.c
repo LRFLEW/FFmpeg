@@ -75,7 +75,7 @@ static int ogm_chapter(AVFormatContext *as, uint8_t *key, uint8_t *val)
 int ff_vorbis_stream_comment(AVFormatContext *as, AVStream *st,
                              const uint8_t *buf, int size)
 {
-    int updates = ff_vorbis_comment(as, &st->metadata, buf, size, 1);
+    int updates = ff_vorbis_comment(as, &st->metadata, buf, size, st->index);
 
     if (updates > 0) {
         st->event_flags |= AVSTREAM_EVENT_FLAG_METADATA_UPDATED;
@@ -86,7 +86,7 @@ int ff_vorbis_stream_comment(AVFormatContext *as, AVStream *st,
 
 int ff_vorbis_comment(AVFormatContext *as, AVDictionary **m,
                       const uint8_t *buf, int size,
-                      int parse_picture)
+                      int parse_picture_index)
 {
     const uint8_t *p   = buf;
     const uint8_t *end = buf + size;
@@ -151,7 +151,7 @@ int ff_vorbis_comment(AVFormatContext *as, AVDictionary **m,
              * 'METADATA_BLOCK_PICTURE'. This is the preferred and
              * recommended way of embedding cover art within VorbisComments."
              */
-            if (!av_strcasecmp(tt, "METADATA_BLOCK_PICTURE") && parse_picture) {
+            if (!av_strcasecmp(tt, "METADATA_BLOCK_PICTURE") && parse_picture_index > -2) {
                 int ret, len = AV_BASE64_DECODE_SIZE(vl);
                 char *pict = av_malloc(len);
 
@@ -165,7 +165,7 @@ int ff_vorbis_comment(AVFormatContext *as, AVDictionary **m,
                 av_freep(&tt);
                 av_freep(&ct);
                 if (ret > 0)
-                    ret = ff_flac_parse_picture(as, pict, ret, 0);
+                    ret = ff_flac_parse_picture(as, pict, ret, parse_picture_index, 0);
                 av_freep(&pict);
                 if (ret < 0) {
                     av_log(as, AV_LOG_WARNING, "Failed to parse cover art block.\n");

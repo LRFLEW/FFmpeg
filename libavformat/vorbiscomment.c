@@ -21,6 +21,7 @@
 
 #include "avio.h"
 #include "avformat.h"
+#include "flac_picture.h"
 #include "metadata.h"
 #include "vorbiscomment.h"
 #include "libavutil/dict.h"
@@ -43,6 +44,12 @@ int64_t ff_vorbiscomment_length(const AVDictionary *m, const char *vendor_string
 {
     int64_t len = 8;
     len += strlen(vendor_string);
+    if (m) {
+        AVDictionaryEntry *tag = NULL;
+        while ((tag = av_dict_get(m, "", tag, AV_DICT_IGNORE_SUFFIX))) {
+            len += 4 +strlen(tag->key) + 1 + strlen(tag->value);
+        }
+    }
     if (chapters && nb_chapters) {
         for (int i = 0; i < nb_chapters; i++) {
             AVDictionaryEntry *tag = NULL;
@@ -53,20 +60,15 @@ int64_t ff_vorbiscomment_length(const AVDictionary *m, const char *vendor_string
             }
         }
     }
-    if (m) {
-        AVDictionaryEntry *tag = NULL;
-        while ((tag = av_dict_get(m, "", tag, AV_DICT_IGNORE_SUFFIX))) {
-            len += 4 +strlen(tag->key) + 1 + strlen(tag->value);
-        }
-    }
     return len;
 }
 
-int ff_vorbiscomment_write(AVIOContext *pb, const AVDictionary *m,
-                           const char *vendor_string,
-                           AVChapter **chapters, unsigned int nb_chapters)
+int ff_vorbiscomment_write(AVIOContext *pb, const AVDictionary *m, const char *vendor_string,
+                           AVChapter **chapters, unsigned int nb_chapters,
+                           int external_count)
 {
-    int cm_count = 0;
+    AVDictionaryEntry *tag;
+    int count, cm_count = 0;
     avio_wl32(pb, strlen(vendor_string));
     avio_write(pb, vendor_string, strlen(vendor_string));
     if (chapters && nb_chapters) {
@@ -74,10 +76,11 @@ int ff_vorbiscomment_write(AVIOContext *pb, const AVDictionary *m,
             cm_count += av_dict_count(chapters[i]->metadata) + 1;
         }
     }
+    count = av_dict_count(m) + cm_count + external_count;
+    avio_wl32(pb, count);
+
     if (m) {
-        int count = av_dict_count(m) + cm_count;
         AVDictionaryEntry *tag = NULL;
-        avio_wl32(pb, count);
         while ((tag = av_dict_get(m, "", tag, AV_DICT_IGNORE_SUFFIX))) {
             int64_t len1 = strlen(tag->key);
             int64_t len2 = strlen(tag->value);
@@ -88,6 +91,8 @@ int ff_vorbiscomment_write(AVIOContext *pb, const AVDictionary *m,
             avio_w8(pb, '=');
             avio_write(pb, tag->value, len2);
         }
+    }
+    if (chapters && nb_chapters) {
         for (int i = 0; i < nb_chapters; i++) {
             AVChapter *chp = chapters[i];
             char chapter_time[13];
@@ -124,7 +129,7 @@ int ff_vorbiscomment_write(AVIOContext *pb, const AVDictionary *m,
                 avio_write(pb, tag->value, len2);
             }
         }
-    } else
-        avio_wl32(pb, 0);
+    }
+
     return 0;
 }

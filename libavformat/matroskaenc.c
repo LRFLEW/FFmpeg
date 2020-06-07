@@ -666,7 +666,7 @@ static int put_flac_codecpriv(AVFormatContext *s, AVIOContext *pb,
         avio_w8(pb, 0x84);
         avio_wb24(pb, len);
 
-        ff_vorbiscomment_write(pb, dict, vendor, NULL, 0);
+        ff_vorbiscomment_write(pb, dict, vendor, NULL, 0, 0);
 
         av_dict_free(&dict);
     }
