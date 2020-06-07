@@ -20,6 +20,7 @@
  */
 
 #include "libavutil/intreadwrite.h"
+#include "libavutil/pixdesc.h"
 #include "libavcodec/bytestream.h"
 #include "libavcodec/png.h"
 #include "avformat.h"
@@ -29,7 +30,7 @@
 
 #define MAX_TRUNC_PICTURE_SIZE (500 * 1024 * 1024)
 
-int ff_flac_parse_picture(AVFormatContext *s, uint8_t *buf, int buf_size, int truncate_workaround)
+int ff_flac_parse_picture(AVFormatContext *s, const uint8_t *buf, int buf_size, int truncate_workaround)
 {
     const CodecMime *mime = ff_id3v2_mime_tags;
     enum AVCodecID id = AV_CODEC_ID_NONE;
@@ -188,4 +189,108 @@ fail:
     av_freep(&desc);
 
     return ret;
+}
+
+int ff_flac_picture_length(AVFormatContext *s, const AVPacket *pkt) {
+    const CodecMime *mime = ff_id3v2_mime_tags;
+    const AVDictionaryEntry *e;
+    const char *mimetype = NULL;
+    const AVStream *st = s->streams[pkt->stream_index];
+    int mimelen, desclen = 0;
+
+    if (!pkt->data)
+        return 0;
+
+    /* get the mimetype */
+    while (mime->id != AV_CODEC_ID_NONE) {
+        if (mime->id == st->codecpar->codec_id) {
+            mimetype = mime->str;
+            break;
+        }
+        mime++;
+    }
+    if (!mimetype)
+        return 0;
+    mimelen = strlen(mimetype);
+
+    /* get the description */
+    if ((e = av_dict_get(st->metadata, "title", NULL, 0)))
+        desclen = strlen(e->value);
+
+    return 4 + 4 + mimelen + 4 + desclen + 4 + 4 + 4 + 4 + 4 + pkt->size;
+}
+
+int ff_flac_write_picture(AVFormatContext *s, AVIOContext *pb, const AVPacket *pkt, unsigned *attached_types)
+{
+    const AVPixFmtDescriptor *pixdesc;
+    const CodecMime *mime = ff_id3v2_mime_tags;
+    const AVDictionaryEntry *e;
+    const char *mimetype = NULL, *desc = "";
+    const AVStream *st = s->streams[pkt->stream_index];
+    int i, mimelen, desclen, type = 0;
+
+    if (!pkt->data)
+        return 0;
+
+    while (mime->id != AV_CODEC_ID_NONE) {
+        if (mime->id == st->codecpar->codec_id) {
+            mimetype = mime->str;
+            break;
+        }
+        mime++;
+    }
+    if (!mimetype) {
+        av_log(s, AV_LOG_ERROR, "No mimetype is known for stream %d, cannot "
+               "write an attached picture.\n", st->index);
+        return AVERROR(EINVAL);
+    }
+    mimelen = strlen(mimetype);
+
+    /* get the picture type */
+    e = av_dict_get(st->metadata, "comment", NULL, 0);
+    for (i = 0; e && i < FF_ARRAY_ELEMS(ff_id3v2_picture_types); i++) {
+        if (!av_strcasecmp(e->value, ff_id3v2_picture_types[i])) {
+            type = i;
+            break;
+        }
+    }
+
+    if ((*attached_types & (1 << type)) & 0x6) {
+        av_log(s, AV_LOG_ERROR, "Duplicate attachment for type '%s'\n", ff_id3v2_picture_types[type]);
+        return AVERROR(EINVAL);
+    }
+
+    if (type == 1 && (st->codecpar->codec_id != AV_CODEC_ID_PNG ||
+                      st->codecpar->width != 32 ||
+                      st->codecpar->height != 32)) {
+        av_log(s, AV_LOG_ERROR, "File icon attachment must be a 32x32 PNG");
+        return AVERROR(EINVAL);
+    }
+
+    *attached_types |= (1 << type);
+
+    /* get the description */
+    if ((e = av_dict_get(st->metadata, "title", NULL, 0)))
+        desc = e->value;
+    desclen = strlen(desc);
+
+    avio_wb32(pb, type);
+
+    avio_wb32(pb, mimelen);
+    avio_write(pb, mimetype, mimelen);
+
+    avio_wb32(pb, desclen);
+    avio_write(pb, desc, desclen);
+
+    avio_wb32(pb, st->codecpar->width);
+    avio_wb32(pb, st->codecpar->height);
+    if ((pixdesc = av_pix_fmt_desc_get(st->codecpar->format)))
+        avio_wb32(pb, av_get_bits_per_pixel(pixdesc));
+    else
+        avio_wb32(pb, 0);
+    avio_wb32(pb, 0);
+
+    avio_wb32(pb, pkt->size);
+    avio_write(pb, pkt->data, pkt->size);
+    return 0;
 }

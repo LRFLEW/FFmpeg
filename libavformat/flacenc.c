@@ -21,11 +21,11 @@
 
 #include "libavutil/channel_layout.h"
 #include "libavutil/opt.h"
-#include "libavutil/pixdesc.h"
 #include "libavcodec/flac.h"
 #include "avformat.h"
 #include "avio_internal.h"
 #include "flacenc.h"
+#include "flac_picture.h"
 #include "id3v2.h"
 #include "internal.h"
 #include "vorbiscomment.h"
@@ -75,95 +75,10 @@ static int flac_write_block_comment(AVIOContext *pb, AVDictionary **m,
     return 0;
 }
 
-static int flac_write_picture(struct AVFormatContext *s, AVPacket *pkt)
-{
-    FlacMuxerContext *c = s->priv_data;
-    AVIOContext *pb = s->pb;
-    const AVPixFmtDescriptor *pixdesc;
-    const CodecMime *mime = ff_id3v2_mime_tags;
-    AVDictionaryEntry *e;
-    const char *mimetype = NULL, *desc = "";
-    const AVStream *st = s->streams[pkt->stream_index];
-    int i, mimelen, desclen, type = 0, blocklen;
-
-    if (!pkt->data)
-        return 0;
-
-    while (mime->id != AV_CODEC_ID_NONE) {
-        if (mime->id == st->codecpar->codec_id) {
-            mimetype = mime->str;
-            break;
-        }
-        mime++;
-    }
-    if (!mimetype) {
-        av_log(s, AV_LOG_ERROR, "No mimetype is known for stream %d, cannot "
-               "write an attached picture.\n", st->index);
-        return AVERROR(EINVAL);
-    }
-    mimelen = strlen(mimetype);
-
-    /* get the picture type */
-    e = av_dict_get(st->metadata, "comment", NULL, 0);
-    for (i = 0; e && i < FF_ARRAY_ELEMS(ff_id3v2_picture_types); i++) {
-        if (!av_strcasecmp(e->value, ff_id3v2_picture_types[i])) {
-            type = i;
-            break;
-        }
-    }
-
-    if ((c->attached_types & (1 << type)) & 0x6) {
-        av_log(s, AV_LOG_ERROR, "Duplicate attachment for type '%s'\n", ff_id3v2_picture_types[type]);
-        return AVERROR(EINVAL);
-    }
-
-    if (type == 1 && (st->codecpar->codec_id != AV_CODEC_ID_PNG ||
-                      st->codecpar->width != 32 ||
-                      st->codecpar->height != 32)) {
-        av_log(s, AV_LOG_ERROR, "File icon attachment must be a 32x32 PNG");
-        return AVERROR(EINVAL);
-    }
-
-    c->attached_types |= (1 << type);
-
-    /* get the description */
-    if ((e = av_dict_get(st->metadata, "title", NULL, 0)))
-        desc = e->value;
-    desclen = strlen(desc);
-
-    blocklen = 4 + 4 + mimelen + 4 + desclen + 4 + 4 + 4 + 4 + 4 + pkt->size;
-    if (blocklen >= 1<<24) {
-        av_log(s, AV_LOG_ERROR, "Picture block too big %d >= %d\n", blocklen, 1<<24);
-        return AVERROR(EINVAL);
-    }
-
-    avio_w8(pb, 0x06);
-    avio_wb24(pb, blocklen);
-
-    avio_wb32(pb, type);
-
-    avio_wb32(pb, mimelen);
-    avio_write(pb, mimetype, mimelen);
-
-    avio_wb32(pb, desclen);
-    avio_write(pb, desc, desclen);
-
-    avio_wb32(pb, st->codecpar->width);
-    avio_wb32(pb, st->codecpar->height);
-    if ((pixdesc = av_pix_fmt_desc_get(st->codecpar->format)))
-        avio_wb32(pb, av_get_bits_per_pixel(pixdesc));
-    else
-        avio_wb32(pb, 0);
-    avio_wb32(pb, 0);
-
-    avio_wb32(pb, pkt->size);
-    avio_write(pb, pkt->data, pkt->size);
-    return 0;
-}
-
 static int flac_finish_header(struct AVFormatContext *s)
 {
-    int i, ret, padding = s->metadata_header_padding;
+    int i, picture_len, ret, padding = s->metadata_header_padding;
+    FlacMuxerContext *pd = s->priv_data;
     if (padding < 0)
         padding = 8192;
     /* The FLAC specification states that 24 bits are used to represent the
@@ -175,7 +90,14 @@ static int flac_finish_header(struct AVFormatContext *s)
         AVPacket *pkt = st->priv_data;
         if (!pkt)
             continue;
-        ret = flac_write_picture(s, pkt);
+        picture_len = ff_flac_picture_length(s, pkt);
+        if (picture_len >= 1<<24) {
+            av_log(s, AV_LOG_ERROR, "Picture block too big %d >= %d\n", picture_len, 1<<24);
+            return AVERROR(EINVAL);
+        }
+        avio_w8(s->pb, 0x06);
+        avio_wb24(s->pb, picture_len);
+        ret = ff_flac_write_picture(s, s->pb, pkt, &pd->attached_types);
         av_packet_unref(pkt);
         if (ret < 0 && (s->error_recognition & AV_EF_EXPLODE))
             return ret;
