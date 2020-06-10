@@ -72,6 +72,9 @@ flac_header (AVFormatContext * s, int idx)
         avpriv_set_pts_info(st, 64, 1, samplerate);
     } else if (mdt == FLAC_METADATA_TYPE_VORBIS_COMMENT) {
         ff_vorbis_stream_comment(s, st, os->buf + os->pstart + 4, os->psize - 4);
+    } else if (mdt == FLAC_METADATA_TYPE_PICTURE) {
+        int ret = ff_flac_parse_picture(s, os->buf + os->pstart + 4, os->psize - 4, 1);
+        if (ret < 0) return ret;
     }
 
     return 1;
