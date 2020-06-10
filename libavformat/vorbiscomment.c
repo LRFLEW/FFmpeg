@@ -74,10 +74,9 @@ int ff_vorbiscomment_write(AVIOContext *pb, const AVDictionary *m,
             cm_count += av_dict_count(chapters[i]->metadata) + 1;
         }
     }
+    avio_wl32(pb, av_dict_count(m) + cm_count);
     if (m) {
-        int count = av_dict_count(m) + cm_count;
         AVDictionaryEntry *tag = NULL;
-        avio_wl32(pb, count);
         while ((tag = av_dict_get(m, "", tag, AV_DICT_IGNORE_SUFFIX))) {
             int64_t len1 = strlen(tag->key);
             int64_t len2 = strlen(tag->value);
@@ -88,6 +87,8 @@ int ff_vorbiscomment_write(AVIOContext *pb, const AVDictionary *m,
             avio_w8(pb, '=');
             avio_write(pb, tag->value, len2);
         }
+    }
+    if (chapters && nb_chapters) {
         for (int i = 0; i < nb_chapters; i++) {
             AVChapter *chp = chapters[i];
             char chapter_time[13];
@@ -124,7 +125,6 @@ int ff_vorbiscomment_write(AVIOContext *pb, const AVDictionary *m,
                 avio_write(pb, tag->value, len2);
             }
         }
-    } else
-        avio_wl32(pb, 0);
+    }
     return 0;
 }
